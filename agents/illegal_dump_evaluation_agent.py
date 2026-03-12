@@ -285,6 +285,7 @@ class IllegalDumpEvaluationAgent(BaseAgent):
             f"Description: {data.get('description', 'N/A')}",
             f"Category: {data.get('category', 'N/A')}",
             f"Address: {data.get('address', 'N/A')}",
+            f"PIN Code: {data.get('pin_code', 'N/A')}",
             f"Landmark: {data.get('landmark', 'N/A')}",
             f"Coordinates: ({data.get('latitude', 0)}, {data.get('longitude', 0)})",
             f"Reported At: {data.get('reported_at', 'N/A')}",

@@ -96,6 +96,7 @@ class PickerAssignmentAgent(BaseAgent):
             longitude=data.get("longitude", 0)
         )
         category = data.get("category")
+        pin_code = data.get("pin_code")
 
         # Fetch available pickers
         pickers = await db_service.get_active_pickers()
@@ -114,7 +115,8 @@ class PickerAssignmentAgent(BaseAgent):
         scored_pickers = await self._score_pickers(
             pickers=pickers,
             request_location=request_location,
-            category=category
+            category=category,
+            request_pin_code=pin_code
         )
 
         # Filter out unsuitable pickers
@@ -149,7 +151,8 @@ class PickerAssignmentAgent(BaseAgent):
         self,
         pickers: List[Dict[str, Any]],
         request_location: Location,
-        category: Optional[str]
+        category: Optional[str],
+        request_pin_code: Optional[int] = None
     ) -> List[PickerScore]:
         """
         Score each picker based on multiple criteria.
@@ -158,6 +161,7 @@ class PickerAssignmentAgent(BaseAgent):
             pickers: List of picker records
             request_location: Location of the request
             category: Waste category
+            request_pin_code: PIN code of the request location
 
         Returns:
             List of PickerScore objects
@@ -219,12 +223,22 @@ class PickerAssignmentAgent(BaseAgent):
             # Workload score (fewer assignments = higher score)
             workload_score = max(0, 1 - (current_workload / 10))
 
+            # PIN code area match score
+            area_score = 0.5  # Default
+            picker_pin_code = picker.get("pin_code")
+            if request_pin_code and picker_pin_code:
+                if picker_pin_code == request_pin_code:
+                    area_score = 1.0  # Same PIN code = same area
+                elif str(picker_pin_code)[:3] == str(request_pin_code)[:3]:
+                    area_score = 0.7  # Same district (first 3 digits match)
+
             # Calculate total score (weighted)
             total_score = (
-                vehicle_score * 0.30 +  # Vehicle compatibility
-                distance_score * 0.30 +  # Geographic proximity
-                route_score * 0.20 +      # Route compatibility
-                workload_score * 0.20     # Workload balance
+                vehicle_score * 0.25 +   # Vehicle compatibility
+                distance_score * 0.25 +  # Geographic proximity
+                route_score * 0.15 +     # Route compatibility
+                workload_score * 0.20 +  # Workload balance
+                area_score * 0.15        # PIN code area match
             )
 
             # Build reasoning
@@ -237,6 +251,8 @@ class PickerAssignmentAgent(BaseAgent):
                 reasoning_parts.append("on route")
             if workload_score >= 0.7:
                 reasoning_parts.append(f"low workload ({current_workload} tasks)")
+            if area_score >= 0.8:
+                reasoning_parts.append("same area")
 
             scored.append(PickerScore(
                 picker_id=picker_id,
