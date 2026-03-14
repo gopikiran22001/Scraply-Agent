@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional, Any as AnyType
 from datetime import datetime, timedelta
 
 from google.adk.agents import Agent
-from google.adk.runners import Runner
 
 from agents.base_agent import BaseAgent, AgentDecision
 from config.settings import settings
@@ -224,24 +223,11 @@ class PickupEvaluationAgent(BaseAgent):
         prompt = self._build_evaluation_prompt(data, nearby_pickups, spam_indicators, image_analysis)
 
         try:
-            # Create and run agent
-            agent = self._create_agent(
-                instruction=PICKUP_EVALUATION_INSTRUCTION
+            response_content = await self._run_prompt(
+                instruction=PICKUP_EVALUATION_INSTRUCTION,
+                prompt=prompt,
+                app_name="scraply_pickup_evaluation",
             )
-
-            runner = Runner(
-                agent=agent,
-                app_name="scraply_pickup_evaluation"
-            )
-
-            # Run the agent
-            response_content = ""
-            async for event in runner.run_async(user_id="system", user_message=prompt):
-                if event.is_final_response():
-                    if event.content and event.content.parts:
-                        for part in event.content.parts:
-                            if hasattr(part, 'text'):
-                                response_content += part.text
 
             # Parse response
             parsed = self._parse_llm_response(response_content)

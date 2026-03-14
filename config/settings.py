@@ -92,10 +92,11 @@ class LLMConfig:
 
 @dataclass
 class VisionConfig:
-    """Vision model configuration for image analysis (Google Gemini)."""
+    """Vision model configuration for image analysis with provider fallback."""
     enabled: bool
     api_key: str
     model: str
+    groq_model: str
     max_image_size_mb: float
 
     @classmethod
@@ -104,6 +105,7 @@ class VisionConfig:
             enabled=os.getenv("VISION_ENABLED", "true").lower() == "true",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
             model=os.getenv("VISION_MODEL", "gemini-2.0-flash"),
+            groq_model=os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
             max_image_size_mb=float(os.getenv("VISION_MAX_IMAGE_SIZE_MB", "4.0")),
         )
 
@@ -157,8 +159,8 @@ class Settings:
             errors.append("AGENT_ID is required")
         if not self.database.password:
             errors.append("DB_PASSWORD is required")
-        if self.vision.enabled and not self.vision.api_key:
-            errors.append("GOOGLE_API_KEY is required when VISION_ENABLED=true")
+        if self.vision.enabled and not self.vision.api_key and not self.llm.api_key:
+            errors.append("Either GOOGLE_API_KEY or GROQ_API_KEY is required when VISION_ENABLED=true")
 
         return errors
 

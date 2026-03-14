@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
 from google.adk.agents import Agent
-from google.adk.runners import Runner
 
 from agents.base_agent import BaseAgent, AgentDecision
 from config.settings import settings
@@ -287,22 +286,11 @@ class PickerAssignmentAgent(BaseAgent):
         prompt = self._build_selection_prompt(data, scored_pickers)
 
         try:
-            agent = self._create_agent(
-                instruction=PICKER_ASSIGNMENT_INSTRUCTION
+            response_content = await self._run_prompt(
+                instruction=PICKER_ASSIGNMENT_INSTRUCTION,
+                prompt=prompt,
+                app_name="scraply_picker_assignment",
             )
-
-            runner = Runner(
-                agent=agent,
-                app_name="scraply_picker_assignment"
-            )
-
-            response_content = ""
-            async for event in runner.run_async(user_id="system", user_message=prompt):
-                if event.is_final_response():
-                    if event.content and event.content.parts:
-                        for part in event.content.parts:
-                            if hasattr(part, 'text'):
-                                response_content += part.text
 
             parsed = self._parse_llm_response(response_content)
 

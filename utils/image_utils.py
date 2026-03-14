@@ -1,6 +1,6 @@
 """
 Image utilities for downloading and analyzing images using vision AI.
-Uses Google Gemini for image analysis capabilities.
+Uses Google Gemini when configured, with Groq vision fallback.
 """
 
 import base64
@@ -9,6 +9,7 @@ import httpx
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+import os
 
 from config.settings import settings
 from utils.logging_utils import logger
@@ -132,7 +133,7 @@ def get_image_mime_type(image_data: bytes) -> str:
 
 class VisionService:
     """
-    Service for analyzing images using Google Gemini vision model.
+    Service for analyzing images with Gemini or Groq vision models.
     """
 
     def __init__(self):
@@ -183,21 +184,7 @@ class VisionService:
                 image_hash=None
             )
 
-        if not settings.vision.api_key:
-            logger.warning("Vision API key not configured")
-            return ImageAnalysis(
-                result=ImageAnalysisResult.ERROR,
-                confidence=0.0,
-                description="Vision API key not configured",
-                detected_category=None,
-                is_valid=True,
-                details={"reason": "no_api_key"},
-                image_hash=None
-            )
-
         try:
-            _, model = self._get_client()
-
             # Get image hash for duplicate detection
             image_hash = get_image_hash(image_data)
 
@@ -207,16 +194,30 @@ class VisionService:
             else:
                 prompt = self._build_dump_vision_prompt(context)
 
-            # Create image part for Gemini
-            import PIL.Image
-            import io
-            image = PIL.Image.open(io.BytesIO(image_data))
+            if settings.vision.api_key:
+                try:
+                    response_text = await self._analyze_with_gemini(prompt, image_data)
+                    return self._parse_vision_response(response_text, image_hash)
+                except Exception as e:
+                    if settings.llm.api_key:
+                        logger.warning(f"Gemini vision failed, falling back to Groq vision: {e}")
+                    else:
+                        raise
 
-            # Generate response
-            response = model.generate_content([prompt, image])
+            if settings.llm.api_key:
+                response_text = await self._analyze_with_groq(prompt, image_data)
+                return self._parse_vision_response(response_text, image_hash)
 
-            # Parse the response
-            return self._parse_vision_response(response.text, image_hash)
+            logger.warning("No vision provider configured (missing GOOGLE_API_KEY and GROQ_API_KEY)")
+            return ImageAnalysis(
+                result=ImageAnalysisResult.ERROR,
+                confidence=0.0,
+                description="No vision provider configured",
+                detected_category=None,
+                is_valid=True,
+                details={"reason": "no_provider"},
+                image_hash=image_hash
+            )
 
         except Exception as e:
             logger.error(f"Vision analysis error: {e}")
@@ -229,6 +230,106 @@ class VisionService:
                 details={"error": str(e)},
                 image_hash=get_image_hash(image_data) if image_data else None
             )
+
+    async def _analyze_with_gemini(self, prompt: str, image_data: bytes) -> str:
+        """Analyze image with Gemini vision model."""
+        _, model = self._get_client()
+
+        import PIL.Image
+        import io
+
+        image = PIL.Image.open(io.BytesIO(image_data))
+        response = model.generate_content([prompt, image])
+        return response.text or ""
+
+    async def _analyze_with_groq(self, prompt: str, image_data: bytes) -> str:
+        """Analyze image with Groq vision model via LiteLLM."""
+        from litellm import acompletion
+
+        mime_type = get_image_mime_type(image_data)
+        image_b64 = encode_image_base64(image_data)
+        image_url = f"data:{mime_type};base64,{image_b64}"
+
+        models = self._get_groq_vision_model_candidates()
+        errors = []
+
+        for model_name in models:
+            try:
+                response = await acompletion(
+                    model=f"groq/{model_name}",
+                    api_key=settings.llm.api_key,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": image_url}},
+                            ],
+                        }
+                    ],
+                    temperature=0.0,
+                    max_tokens=700,
+                )
+
+                content = response.choices[0].message.content
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return "\n".join(
+                        part.get("text", "")
+                        for part in content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                return str(content)
+
+            except Exception as e:
+                err_text = str(e)
+                errors.append(f"{model_name}: {err_text}")
+                err_lower = err_text.lower()
+
+                # Try the next candidate if model is unavailable/decommissioned/unsupported.
+                if (
+                    "decommissioned" in err_lower
+                    or "model_decommissioned" in err_lower
+                    or "not supported" in err_lower
+                    or "does not exist" in err_lower
+                    or "not found" in err_lower
+                ):
+                    logger.warning(f"Groq vision model unavailable, trying next candidate: {model_name}")
+                    continue
+
+                raise
+
+        raise RuntimeError(
+            "All Groq vision model candidates failed: " + " | ".join(errors)
+        )
+
+    def _get_groq_vision_model_candidates(self) -> list[str]:
+        """Return ordered Groq vision model candidates from config/env/defaults."""
+        candidates = [settings.vision.groq_model]
+
+        env_fallbacks = os.getenv("GROQ_VISION_FALLBACK_MODELS", "")
+        if env_fallbacks.strip():
+            candidates.extend(
+                model.strip()
+                for model in env_fallbacks.split(",")
+                if model.strip()
+            )
+
+        # Sensible defaults for current Groq multimodal lineup.
+        candidates.extend([
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "meta-llama/llama-4-maverick-17b-128e-instruct",
+        ])
+
+        seen = set()
+        deduped = []
+        for model in candidates:
+            if model not in seen:
+                seen.add(model)
+                deduped.append(model)
+
+        return deduped
 
     def _build_pickup_vision_prompt(self, context: str) -> str:
         """Build vision prompt for pickup request validation."""

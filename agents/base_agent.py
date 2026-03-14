@@ -8,9 +8,13 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from enum import Enum
 import json
+import uuid
 
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
 
 from config.settings import settings
 from config.constants import EvaluationResult
@@ -45,6 +49,7 @@ class BaseAgent(ABC):
         self.description = description
         self._llm = None
         self._agent = None
+        self._session_service = InMemorySessionService()
 
     def _get_llm(self) -> LiteLlm:
         """Get or create the LLM model instance."""
@@ -148,3 +153,28 @@ class BaseAgent(ABC):
             decision=decision.result.value,
             reasoning=decision.reasoning[:200]  # Truncate for logging
         )
+
+    async def _run_prompt(self, instruction: str, prompt: str, app_name: str) -> str:
+        """Run an instruction/prompt pair through ADK and return final text output."""
+        agent = self._create_agent(instruction=instruction)
+        runner = Runner(
+            agent=agent,
+            app_name=app_name,
+            session_service=self._session_service,
+            auto_create_session=True,
+        )
+
+        session_id = f"{self.name.lower()}_{uuid.uuid4().hex}"
+        response_content = ""
+
+        async for event in runner.run_async(
+            user_id="system",
+            session_id=session_id,
+            new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text"):
+                        response_content += part.text
+
+        return response_content
