@@ -16,7 +16,7 @@ from config.constants import EvaluationResult, Status, QueueNames
 from services.database_service import db_service
 from services.redis_service import redis_service
 from services.rest_api_service import api_service, APIError
-from utils.logging_utils import logger, log_request_processing
+from utils.logging_utils import logger, log_request_processing, log_error_event
 
 
 class RequestType(str, Enum):
@@ -100,10 +100,10 @@ class OrchestratorAgent:
                 return False
 
         except APIError as e:
-            logger.error(f"API error processing pickup {pickup_id}: {e}")
+            log_error_event("PICKUP_API_ERROR", str(e), request_type="PICKUP", request_id=pickup_id)
             return False
         except Exception as e:
-            logger.error(f"Error processing pickup {pickup_id}: {e}")
+            log_error_event("PICKUP_PROCESSING_ERROR", str(e), request_type="PICKUP", request_id=pickup_id)
             return False
 
     async def process_dump_request(self, dump_id: str) -> bool:
@@ -153,10 +153,10 @@ class OrchestratorAgent:
                 return False
 
         except APIError as e:
-            logger.error(f"API error processing dump {dump_id}: {e}")
+            log_error_event("DUMP_API_ERROR", str(e), request_type="DUMP", request_id=dump_id)
             return False
         except Exception as e:
-            logger.error(f"Error processing dump {dump_id}: {e}")
+            log_error_event("DUMP_PROCESSING_ERROR", str(e), request_type="DUMP", request_id=dump_id)
             return False
 
     async def process_pickup_assignment(self, pickup_id: str) -> bool:
@@ -230,10 +230,10 @@ class OrchestratorAgent:
                 return False
 
         except APIError as e:
-            logger.error(f"API error assigning pickup {pickup_id}: {e}")
+            log_error_event("PICKUP_ASSIGN_API_ERROR", str(e), request_type="PICKUP_ASSIGN", request_id=pickup_id)
             return False
         except Exception as e:
-            logger.error(f"Error assigning pickup {pickup_id}: {e}")
+            log_error_event("PICKUP_ASSIGN_ERROR", str(e), request_type="PICKUP_ASSIGN", request_id=pickup_id)
             return False
 
     async def process_dump_assignment(self, dump_id: str) -> bool:
@@ -307,10 +307,10 @@ class OrchestratorAgent:
                 return False
 
         except APIError as e:
-            logger.error(f"API error assigning dump {dump_id}: {e}")
+            log_error_event("DUMP_ASSIGN_API_ERROR", str(e), request_type="DUMP_ASSIGN", request_id=dump_id)
             return False
         except Exception as e:
-            logger.error(f"Error assigning dump {dump_id}: {e}")
+            log_error_event("DUMP_ASSIGN_ERROR", str(e), request_type="DUMP_ASSIGN", request_id=dump_id)
             return False
 
     async def handle_queue_item(self, queue_name: str, item_id: str) -> bool:
@@ -398,7 +398,7 @@ class OrchestratorAgent:
                 logger.info("[Orchestrator] Received cancellation signal")
                 break
             except Exception as e:
-                logger.error(f"[Orchestrator] Error in processing loop: {e}")
+                log_error_event("ORCHESTRATOR_LOOP_ERROR", str(e))
                 await asyncio.sleep(poll_interval)
 
         logger.info("[Orchestrator] Stopped continuous processing")

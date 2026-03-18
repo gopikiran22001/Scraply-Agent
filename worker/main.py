@@ -140,8 +140,8 @@ class Worker:
         finally:
             await self.shutdown()
 
-    async def _health_check_loop(self, interval: int = 300):
-        """Periodic health check loop (default: 5 minutes)."""
+    async def _health_check_loop(self, interval: int = 600):
+        """Periodic health check loop (default: 10 minutes)."""
         while not self._shutdown_event.is_set():
             try:
                 await asyncio.sleep(interval)

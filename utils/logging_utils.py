@@ -5,6 +5,8 @@ Logging configuration for the Scraply AI Agent.
 import logging
 import sys
 from typing import Optional
+import asyncio
+import json
 from datetime import datetime
 
 
@@ -56,6 +58,62 @@ def setup_logger(
 logger = setup_logger()
 
 
+def _normalize_level(level: str) -> str:
+    normalized = (level or "INFO").upper()
+    if normalized == "WARN":
+        return "WARNING"
+    return normalized
+
+
+def _serialize_details(details: Optional[dict]) -> Optional[str]:
+    if not details:
+        return None
+    try:
+        serialized = json.dumps(details, ensure_ascii=True, default=str)
+        return serialized[:3900]
+    except Exception:
+        return None
+
+
+def _log_dispatch_failed(task: asyncio.Task):
+    try:
+        task.result()
+    except Exception as exc:
+        logger.debug(f"Agent log dispatch failed: {exc}")
+
+
+def emit_agent_log(
+    level: str,
+    message: str,
+    event_type: str = "GENERAL",
+    request_type: Optional[str] = None,
+    request_id: Optional[str] = None,
+    details: Optional[dict] = None
+):
+    """Send structured logs to backend asynchronously without blocking workflows."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    try:
+        from services.rest_api_service import api_service
+
+        task = loop.create_task(
+            api_service.create_agent_log(
+                level=_normalize_level(level),
+                message=message,
+                event_type=event_type,
+                request_type=request_type,
+                request_id=request_id,
+                details=_serialize_details(details)
+            )
+        )
+        task.add_done_callback(_log_dispatch_failed)
+    except Exception as exc:
+        logger.debug(f"Failed to queue agent log dispatch: {exc}")
+
+
 def log_request_processing(
     request_type: str,
     request_id: str,
@@ -67,6 +125,14 @@ def log_request_processing(
     if details:
         message += f" | {details}"
     logger.info(message)
+    emit_agent_log(
+        level="INFO",
+        message=message,
+        event_type=action.upper().replace(" ", "_"),
+        request_type=request_type,
+        request_id=request_id,
+        details={"details": details} if details else None
+    )
 
 
 def log_agent_decision(
@@ -80,6 +146,33 @@ def log_agent_decision(
     if reasoning:
         message += f" | Reasoning: {reasoning}"
     logger.info(message)
+    emit_agent_log(
+        level="INFO",
+        message=message,
+        event_type="DECISION",
+        request_id=request_id,
+        details={"agentName": agent_name, "decision": decision, "reasoning": reasoning}
+    )
+
+
+def log_error_event(
+    context: str,
+    error: str,
+    request_type: Optional[str] = None,
+    request_id: Optional[str] = None,
+    details: Optional[dict] = None
+):
+    """Log error locally and dispatch it to backend for reporting."""
+    message = f"[{context}] {error}"
+    logger.error(message)
+    emit_agent_log(
+        level="ERROR",
+        message=message,
+        event_type="ERROR",
+        request_type=request_type,
+        request_id=request_id,
+        details=details
+    )
 
 
 def log_api_call(

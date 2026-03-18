@@ -79,6 +79,33 @@ class AgentDumpingUpdate:
         return data
 
 
+@dataclass
+class AgentLogEntry:
+    """Payload for persisting agent logs in backend."""
+    agent_id: str
+    level: str
+    message: str
+    event_type: str = "GENERAL"
+    request_type: Optional[str] = None
+    request_id: Optional[str] = None
+    details: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = {
+            "agentId": self.agent_id,
+            "level": self.level,
+            "message": self.message,
+            "eventType": self.event_type
+        }
+        if self.request_type:
+            data["requestType"] = self.request_type
+        if self.request_id:
+            data["requestId"] = self.request_id
+        if self.details:
+            data["details"] = self.details
+        return data
+
+
 class RestApiService:
     """
     Service for making authenticated API calls to the Scraply backend.
@@ -351,6 +378,32 @@ class RestApiService:
             method="PUT",
             endpoint="/agent/dumping",
             json_data=update.to_dict()
+        )
+
+    async def create_agent_log(
+        self,
+        level: str,
+        message: str,
+        event_type: str = "GENERAL",
+        request_type: Optional[str] = None,
+        request_id: Optional[str] = None,
+        details: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Persist a structured agent log via backend endpoint."""
+        entry = AgentLogEntry(
+            agent_id=settings.agent.agent_id,
+            level=level,
+            message=message,
+            event_type=event_type,
+            request_type=request_type,
+            request_id=request_id,
+            details=details
+        )
+
+        return await self._make_request(
+            method="POST",
+            endpoint="/agent/logs",
+            json_data=entry.to_dict()
         )
 
     # ==================== READ OPERATIONS (via existing endpoints) ====================
