@@ -1,6 +1,6 @@
-# Scraply AI Agent
+# Scraply AI Agent System
 
-An intelligent AI agent system that automatically evaluates pickup requests and illegal dumping reports for the Scraply waste management platform.
+An intelligent AI agent system that automatically evaluates pickup requests, manages illegal dumping reports, detects duplicates, and intelligently assigns waste collectors using advanced LLM reasoning powered by Groq and Google ADK.
 
 ## Features
 
